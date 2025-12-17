@@ -1,241 +1,477 @@
 import streamlit as st
-import math
+import matplotlib
+
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import math
+import io
+import base64
+import streamlit.components.v1 as components
 
-# --- 1. Page Configuration ---
-st.set_page_config(page_title="RC Slab Design Report", layout="wide")
+# ==========================================
+# 1. SETUP & CSS
+# ==========================================
+st.set_page_config(page_title="RC One-Way Slab Design (Auto Check)", layout="wide")
 
-# --- 2. Custom CSS (Styles for Report & Printing) ---
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap');
 
-    html, body, [class*="css"] {
-        font-family: 'Sarabun', sans-serif;
-    }
-
-    /* Header Box */
-    .header-box {
-        border: 2px solid #000;
-        padding: 15px;
-        margin-bottom: 20px;
-        background-color: #ffffff;
-    }
-
-    .report-title {
-        text-align: center;
-        font-weight: 700;
-        font-size: 24px;
-        margin-bottom: 5px;
-        text-transform: uppercase;
-    }
-
-    .report-subtitle {
-        text-align: center;
-        font-weight: 600;
-        font-size: 18px;
-        margin-bottom: 15px;
-        color: #333;
-    }
-
-    /* Table Styling */
-    .calc-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-family: 'Sarabun', sans-serif;
-        font-size: 14px;
-        margin-top: 10px;
-        color: #000;
-    }
-
-    .calc-table th {
-        background-color: #e0e0e0; /* Gray Header */
-        border: 1px solid #000;
-        padding: 8px;
-        text-align: center;
-        font-weight: bold;
-    }
-
-    .calc-table td {
-        border: 1px solid #000;
-        padding: 6px 8px;
-        vertical-align: middle;
-    }
-
-    /* Column Widths */
-    .col-item { width: 25%; font-weight: 600; }
-    .col-formula { width: 20%; font-family: 'Courier New', monospace; font-size: 13px; color: #444; }
-    .col-sub { width: 25%; font-family: 'Courier New', monospace; font-size: 13px; color: #222; }
-    .col-result { width: 15%; text-align: center; font-weight: bold; }
-    .col-unit { width: 8%; text-align: center; }
-    .col-status { width: 7%; text-align: center; font-weight: bold; }
-
-    /* Print Button */
-    .print-btn-container {
-        text-align: right; 
-        margin-bottom: 10px;
-    }
-    .print-btn {
-        background-color: #28a745;
-        color: white;
-        padding: 8px 16px;
+    /* Print Button Style */
+    .print-btn-internal {
+        background-color: #4CAF50;
         border: none;
-        border-radius: 4px;
+        color: white !important;
+        padding: 12px 24px;
+        text-align: center;
         text-decoration: none;
-        font-weight: bold;
+        display: inline-block;
+        font-size: 16px;
+        margin: 10px 0px;
         cursor: pointer;
-        font-size: 14px;
+        border-radius: 5px;
+        font-family: 'Sarabun', sans-serif;
+        font-weight: bold;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
     }
-    .print-btn:hover { background-color: #218838; }
+    .print-btn-internal:hover { background-color: #45a049; }
 
-    /* Print Media Query (Hide Sidebar & Elements) */
-    @media print {
-        [data-testid="stSidebar"] { display: none; }
-        .stButton { display: none; }
-        .print-btn-container { display: none; }
-        footer { display: none; }
-        header { display: none; }
-        .block-container { padding-top: 0rem; padding-bottom: 0rem; }
-    }
+    /* Report Table Style */
+    .report-table {width: 100%; border-collapse: collapse; font-family: 'Sarabun', sans-serif; font-size: 14px;}
+    .report-table th, .report-table td {border: 1px solid #ddd; padding: 8px;}
+    .report-table th {background-color: #f2f2f2; text-align: center; font-weight: bold;}
+
+    .pass-ok {color: green; font-weight: bold;}
+    .pass-no {color: red; font-weight: bold;}
+    .pass-warn {color: #ff9800; font-weight: bold;} /* Orange for warning */
+
+    .sec-row {background-color: #e0e0e0; font-weight: bold; font-size: 15px;}
+    .load-value {color: #D32F2F !important; font-weight: bold;}
 </style>
 """, unsafe_allow_html=True)
 
+# ==========================================
+# 2. DATABASE & HELPERS
+# ==========================================
+BAR_INFO = {
+    'RB6': {'A_cm2': 0.283, 'd_mm': 6},
+    'RB9': {'A_cm2': 0.636, 'd_mm': 9},
+    'DB10': {'A_cm2': 0.785, 'd_mm': 10},
+    'DB12': {'A_cm2': 1.131, 'd_mm': 12},
+    'DB16': {'A_cm2': 2.011, 'd_mm': 16},
+    'DB20': {'A_cm2': 3.142, 'd_mm': 20},
+    'DB25': {'A_cm2': 4.909, 'd_mm': 25}
+}
 
-# --- 3. Helper Function: Draw Slab Section ---
-def draw_slab_schematic(L_m, h_cm, cover_cm, main_txt, temp_txt, support_type):
-    fig, ax = plt.subplots(figsize=(10, 3.5))
+
+def fmt(n, digits=2):
+    try:
+        val = float(n)
+        if math.isnan(val): return "-"
+        return f"{val:,.{digits}f}"
+    except:
+        return "-"
+
+
+def fig_to_base64(fig):
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', bbox_inches='tight')
+    buf.seek(0)
+    return f"data:image/png;base64,{base64.b64encode(buf.read()).decode()}"
+
+
+# ==========================================
+# 3. PLOTTING FUNCTION
+# ==========================================
+def plot_slab_section(h_cm, cover_cm, main_key, s_main, temp_key, s_temp):
+    fig, ax = plt.subplots(figsize=(7, 3))
 
     # Schematic Dimensions
+    # Draw a cut section
+    slab_len_draw = 4.0
     beam_w = 0.3
-    slab_L = 4.0
-    slab_h = 0.5
+    slab_h_draw = 0.5  # Visual height relative to length
 
-    # 1. Concrete Outline
-    # Left Beam
-    ax.add_patch(patches.Rectangle((0, -0.8), beam_w, 0.8, facecolor='white', edgecolor='black', linewidth=1.2))
-    # Right Beam
+    # Concrete
+    ax.add_patch(patches.Rectangle((0, -0.6), beam_w, 0.6, facecolor='white', edgecolor='black', linewidth=1.5))
+    ax.add_patch(patches.Rectangle((slab_len_draw + beam_w, -0.6), beam_w, 0.6, facecolor='white', edgecolor='black',
+                                   linewidth=1.5))
     ax.add_patch(
-        patches.Rectangle((slab_L + beam_w, -0.8), beam_w, 0.8, facecolor='white', edgecolor='black', linewidth=1.2))
-    # Slab
-    ax.add_patch(
-        patches.Rectangle((0, 0), slab_L + 2 * beam_w, slab_h, facecolor='#f9f9f9', edgecolor='black', linewidth=1.2))
+        patches.Rectangle((0, 0), slab_len_draw + 2 * beam_w, slab_h_draw, facecolor='#f9f9f9', edgecolor='black',
+                          linewidth=1.5))
 
-    # 2. Rebar Drawing
+    # Rebar
     pad = 0.05
+    # Main Steel (Bottom - Blue Line) -> Represents Short Span Reinforcement
+    ax.plot([pad, slab_len_draw + 2 * beam_w - pad], [pad, pad], color='blue', linewidth=2.5)
+    # Hooks
+    ax.plot([pad, pad], [pad, pad + 0.15], color='blue', linewidth=2.5)
+    ax.plot([slab_len_draw + 2 * beam_w - pad, slab_len_draw + 2 * beam_w - pad], [pad, pad + 0.15], color='blue',
+            linewidth=2.5)
 
-    # Bottom Main Steel (Blue Line)
-    ax.plot([pad, slab_L + 2 * beam_w - pad], [pad, pad], color='blue', linewidth=2, label='Main Bottom')
-    # Hooks up
-    ax.plot([pad, pad], [pad, pad + 0.2], color='blue', linewidth=2)
-    ax.plot([slab_L + 2 * beam_w - pad, slab_L + 2 * beam_w - pad], [pad, pad + 0.2], color='blue', linewidth=2)
-
-    # Top Steel (Red Line) - Representing Negative Moment or Temp Top
-    top_bar_len = slab_L * 0.25
-
-    # Left Top
-    ax.plot([pad, beam_w + top_bar_len], [slab_h - pad, slab_h - pad], color='red', linewidth=2)
-    ax.plot([pad, pad], [slab_h - pad, slab_h - pad - 0.2], color='red', linewidth=2)
-
-    # Right Top
-    ax.plot([slab_L + beam_w - top_bar_len, slab_L + 2 * beam_w - pad], [slab_h - pad, slab_h - pad], color='red',
-            linewidth=2)
-    ax.plot([slab_L + 2 * beam_w - pad, slab_L + 2 * beam_w - pad], [slab_h - pad, slab_h - pad - 0.2], color='red',
-            linewidth=2)
-
-    # Temperature Steel (Dots)
+    # Temp Steel (Top of Bottom - Red Dots) -> Represents Long Span Reinforcement
     dot_spacing = 0.25
-    n_dots = int((slab_L + 2 * beam_w) / dot_spacing)
+    n_dots = int((slab_len_draw + 2 * beam_w) / dot_spacing)
     for i in range(1, n_dots):
         cx = i * dot_spacing
-        # Dots on top of bottom bar
-        circle = patches.Circle((cx, pad + 0.06), radius=0.03, color='black')
-        ax.add_patch(circle)
+        ax.add_patch(patches.Circle((cx, pad + 0.07), radius=0.04, color='red'))
 
-    # 3. Annotations
-    # Top/Temp Label
-    ax.annotate(f"Top/Temp: {temp_txt}", xy=(beam_w, slab_h - pad), xytext=(beam_w + 0.5, slab_h + 0.3),
-                arrowprops=dict(facecolor='black', arrowstyle='->'), fontsize=9, fontweight='bold')
+    # Labels
+    ax.text((slab_len_draw / 2) + beam_w, slab_h_draw / 2, f"Thickness t = {h_cm:.0f} cm", ha='center', va='center',
+            fontsize=11)
 
-    # Bottom Main Label
-    ax.annotate(f"Main Bottom: {main_txt}", xy=(slab_L / 2 + beam_w, pad), xytext=(slab_L / 2, -0.4),
-                arrowprops=dict(facecolor='black', arrowstyle='->'), fontsize=9, fontweight='bold')
+    # Annotation Arrows
+    main_txt = f"Short Span (Main): {main_key}@{s_main:.0f}cm"
+    temp_txt = f"Long Span (Temp): {temp_key}@{s_temp:.0f}cm"
 
-    # Dimensions
-    ax.text((slab_L / 2) + beam_w, slab_h / 2, f"t = {h_cm:.0f} cm", ha='center', va='center', fontsize=10)
+    ax.annotate(main_txt, xy=(slab_len_draw / 2 + beam_w, pad), xytext=(slab_len_draw / 2, -0.4),
+                arrowprops=dict(facecolor='blue', arrowstyle='->'), fontsize=10, color='blue', fontweight='bold')
 
-    # Span Line
-    ax.annotate("", xy=(beam_w, -0.2), xytext=(beam_w + slab_L, -0.2), arrowprops=dict(arrowstyle='<->', color='black'))
-    ax.text((slab_L / 2) + beam_w, -0.15, f"Span L = {L_m:.2f} m", ha='center', fontsize=10, backgroundcolor='white')
+    ax.annotate(temp_txt, xy=(slab_len_draw / 2 + beam_w + 0.2, pad + 0.07),
+                xytext=(slab_len_draw / 2 + 1.5, slab_h_draw + 0.3),
+                arrowprops=dict(facecolor='red', arrowstyle='->'), fontsize=10, color='red', fontweight='bold')
 
-    ax.set_xlim(-0.5, slab_L + 2 * beam_w + 0.5)
-    ax.set_ylim(-1.0, slab_h + 1.0)
+    ax.set_xlim(-0.2, slab_len_draw + 2 * beam_w + 0.2)
+    ax.set_ylim(-0.8, slab_h_draw + 0.6)
     ax.axis('off')
     plt.tight_layout()
-
     return fig
 
 
-# --- 4. Main Application ---
-def main():
-    # ---------------- SIDEBAR INPUTS ----------------
-    with st.sidebar:
-        st.header("Project Information")
-        project_name = st.text_input("Project Name", "อาคารสำนักงาน 2 ชั้น")
-        engineer_name = st.text_input("Engineer", "นายไกรฤทธิ์ ด่านพิทักษ์")
-        date_str = st.text_input("Date", "16/12/2568")
+# ==========================================
+# 4. CALCULATION LOGIC
+# ==========================================
+def process_slab_calculation(inputs):
+    rows = []
 
-        st.markdown("---")
-        st.header("1. Material Properties")
-        fc = st.number_input("Concrete (fc') ksc", value=240, step=10)
-        fy = st.number_input("Steel Yield (fy) ksc", value=4000, step=100)
+    def sec(title):
+        rows.append(["SECTION", title, "", "", "", "", ""])
 
-        st.header("2. Geometry & Loads")
-        span_L = st.number_input("Span Length (m)", value=4.0, step=0.1)
-        slab_t = st.number_input("Thickness (m)", value=0.15, step=0.01)
-        cover = st.number_input("Cover (m)", value=0.025, step=0.005)
+    def row(item, formula, subs, result, unit, status=""):
+        rows.append([item, formula, subs, result, unit, status])
 
-        sdl = st.number_input("SDL (kg/m2)", value=150.0)
-        ll = st.number_input("Live Load (kg/m2)", value=300.0)
+    # Unpack
+    fc = inputs['fc'];
+    fy = inputs['fy']
+    Lx = inputs['Lx'];
+    Ly = inputs['Ly']
+    h_cm = inputs['h'];
+    cover_cm = inputs['cover']
+    sdl = inputs['sdl'];
+    ll = inputs['ll']
+    main_key = inputs['mainBar'];
+    temp_key = inputs['tempBar']
+    support = inputs['support']
 
-        st.header("3. Rebar Selection")
-        main_dia = st.selectbox("Main Bar (mm)", [9, 12, 16, 20], index=1)
-        temp_dia = st.selectbox("Temp Bar (mm)", [6, 9], index=0)
+    # 1. Geometry & Type Check
+    sec("1. GEOMETRY & SLAB TYPE")
+    row("Short Span", "Lx", "-", f"{Lx:.2f}", "m")
+    row("Long Span", "Ly", "-", f"{Ly:.2f}", "m")
 
-        support_type = st.selectbox("Support Type",
-                                    ["Simply Supported", "Continuous (One End)", "Continuous (Both)", "Cantilever"])
+    ratio = Ly / Lx
+    slab_type = "One-Way Slab" if ratio > 2.0 else "Two-Way Slab"
+    status_type = "OK" if ratio > 2.0 else "WARNING"
 
-    # ---------------- CALCULATIONS ----------------
-    # Units: cm, kg, ksc
-    b = 100.0  # Design strip 1m
-    L_cm = span_L * 100
-    h_cm = slab_t * 100
-    cover_cm = cover * 100
+    row("Ratio Ly/Lx", f"{Ly:.2f} / {Lx:.2f}", "-", f"{ratio:.2f}", "-", status_type)
+    row("Slab Type Check", "Ratio > 2.0?", "-", slab_type, "-", status_type)
 
-    # 1. Load Analysis
-    w_sw = 2400 * slab_t  # kg/m2
+    if ratio <= 2.0:
+        rows.append(
+            ["Note", "Since Ly/Lx ≤ 2.0, it behaves as Two-Way.", "Design as One-Way (Short Span) is Conservative.",
+             "-", "-", "INFO"])
+
+    # 2. Load Analysis
+    sec("2. LOAD ANALYSIS (Design Strip b = 1 m)")
+    w_sw = 2400 * (h_cm / 100)
     w_dead = w_sw + sdl
-    wu = 1.2 * w_dead + 1.6 * ll  # kg/m (strip)
+    wu = 1.2 * w_dead + 1.6 * ll
 
-    # 2. Moment (Simplified/Coefficients)
-    if support_type == "Simply Supported":
-        denom = 8.0
-    elif "Continuous" in support_type:
-        denom = 10.0  # Approx positive moment
-    elif support_type == "Cantilever":
-        denom = 2.0
+    row("Factored Load (wu)", "1.2D + 1.6L", f"1.2({w_dead:.0f}) + 1.6({ll})", f"{fmt(wu)}", "kg/m")
+
+    # 3. Flexural Design (Short Span - Lx)
+    sec("3. SHORT SPAN DESIGN (MAIN STEEL)")
+
+    # Coef
+    if support == "Simply Supported":
+        coef = 8.0
+    elif "Continuous" in support:
+        coef = 10.0
+    elif support == "Cantilever":
+        coef = 2.0
     else:
-        denom = 8.0
+        coef = 8.0
 
-    Mu_kgm = (wu * span_L ** 2) / denom
-    Mu = Mu_kgm * 100  # kg-cm
+    Mu_kgm = (wu * Lx ** 2) / coef
+    Mu_kgcm = Mu_kgm * 100
 
-    # 3. Design
-    d = h_cm - cover_cm - (main_dia / 20)  # Approx d (using half bar depth)
-    Rn = Mu / (0.9 * b * d ** 2)
+    db_main = BAR_INFO[main_key]['d_mm']
+    d = h_cm - cover_cm - (db_main / 10) / 2
 
-    rho_min = 0.0018  # ACI for deformed bars < 4200 ksc, or 0.0020 for Grade 40. 0.0018 is standard modern.
-    status_flexure = "OK"
+    row("Design Moment (Mu)", f"wu · Lx² / {coef:.0f}", f"{fmt(wu)}·{Lx}²/{coef:.0f}", f"{fmt(Mu_kgm)}", "kg-m")
+    row("Effective Depth (d)", "h - cov - db/2", f"{h_cm}-{cover_cm}-{db_main / 20}", f"{d:.2f}", "cm")
 
+    # Rn & Rho
+    phi = 0.90;
+    b = 100
+    Rn = Mu_kgcm / (phi * b * d ** 2)
+
+    rho_min = 0.0018  # Temp/Shrinkage control
+    status_flex = "OK"
     try:
-        term = 1 - (2 * Rn) / (0.85 *
+        term = 1 - (2 * Rn) / (0.85 * fc)
+        if term < 0:
+            rho_req = 0;
+            status_flex = "FAIL (Thicken Slab)"
+        else:
+            rho_req = (0.85 * fc / fy) * (1 - math.sqrt(term))
+    except:
+        rho_req = 0;
+        status_flex = "CALC ERROR"
+
+    As_flex_req = rho_req * b * d
+    As_min_req = rho_min * b * h_cm
+
+    # Determine Control
+    if As_flex_req >= As_min_req:
+        As_req_short = As_flex_req
+        control = "Flexure Controls"
+    else:
+        As_req_short = As_min_req
+        control = "Min Steel Controls"
+
+    row("Required As (Short)", control, f"max(ρbd, 0.0018bh)", f"{fmt(As_req_short)}", "cm²")
+
+    # Select Main Bar
+    Ab_main = BAR_INFO[main_key]['A_cm2']
+    s_calc = (Ab_main * 100) / As_req_short
+    s_max = min(3 * h_cm, 45.0)
+    s_main = math.floor(min(s_calc, s_max) * 2) / 2
+    As_prov_main = (Ab_main * 100) / s_main
+
+    row("Provide Main Steel", f"Use {main_key}", f"@{s_main:.1f} cm", f"{fmt(As_prov_main)}", "cm²", status_flex)
+
+    # 4. Temperature Steel (Long Span - Ly)
+    sec("4. LONG SPAN DESIGN (TEMP STEEL)")
+    As_req_long = 0.0018 * b * h_cm
+    row("Required As (Long)", "0.0018 · b · h", f"0.0018 · 100 · {h_cm}", f"{fmt(As_req_long)}", "cm²")
+
+    Ab_temp = BAR_INFO[temp_key]['A_cm2']
+    s_t_calc = (Ab_temp * 100) / As_req_long
+    s_t_max = min(5 * h_cm, 45.0)
+    s_temp = math.floor(min(s_t_calc, s_t_max) * 2) / 2
+    As_prov_temp = (Ab_temp * 100) / s_temp
+
+    row("Provide Temp Steel", f"Use {temp_key}", f"@{s_temp:.1f} cm", f"{fmt(As_prov_temp)}", "cm²", "OK")
+
+    # 5. Shear & Deflection
+    sec("5. CHECKS")
+    # Shear
+    Vu = (wu * Lx) / 2 if support != "Cantilever" else wu * Lx
+    Vc = 0.53 * math.sqrt(fc) * b * d
+    phi_Vc = 0.75 * Vc
+    status_shear = "PASS" if phi_Vc >= Vu else "FAIL"
+    row("Shear Check", "φVc ≥ Vu", f"{fmt(phi_Vc)} ≥ {fmt(Vu)}", status_shear, "kg", status_shear)
+
+    # Deflection (h_min)
+    ratio_def = 20  # Default Simply Supported
+    if "Continuous" in support:
+        ratio_def = 24
+    elif support == "Cantilever":
+        ratio_def = 10
+
+    h_min = (Lx * 100 / ratio_def) * (0.4 + fy / 7000)
+    status_defl = "PASS" if h_cm >= h_min else "CHECK"
+    row("Deflection Check", "h ≥ h_min", f"{h_cm} ≥ {fmt(h_min)}", status_defl, "cm", status_defl)
+
+    # Final
+    sec("6. CONCLUSION")
+    final_status = "COMPLETE" if status_flex == "OK" and status_shear == "PASS" else "REVIEW"
+    row("Design Status", "-", "-", final_status, "-", final_status)
+
+    return rows, s_main, s_temp
+
+
+# ==========================================
+# 5. HTML REPORT GENERATOR
+# ==========================================
+def generate_report(inputs, rows, img_base64):
+    table_html = ""
+    for r in rows:
+        if r[0] == "SECTION":
+            table_html += f"<tr class='sec-row'><td colspan='6'>{r[1]}</td></tr>"
+        else:
+            # Determine status color
+            st_val = r[5]
+            cls = "pass-ok"
+            if "FAIL" in st_val:
+                cls = "pass-no"
+            elif "WARNING" in st_val or "CHECK" in st_val:
+                cls = "pass-warn"
+            elif "INFO" in st_val:
+                cls = ""
+
+            val_cls = "load-value" if "Factored" in str(r[0]) else ""
+
+            table_html += f"<tr><td>{r[0]}</td><td>{r[1]}</td><td>{r[2]}</td><td class='{val_cls}'>{r[3]}</td><td>{r[4]}</td><td class='{cls}'>{st_val}</td></tr>"
+
+    html = f"""
+    <!DOCTYPE html>
+    <html lang="th">
+    <head>
+        <meta charset="UTF-8">
+        <title>One-Way Slab Design Report</title>
+        <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap" rel="stylesheet">
+        <style>
+            body {{ font-family: 'Sarabun', sans-serif; padding: 20px; color: black; }}
+            h1, h3 {{ text-align: center; margin: 5px; }}
+            .header {{ border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; position: relative; }}
+            .id-box {{ position: absolute; top:0; right:0; border: 2px solid #000; padding: 5px 15px; font-weight: bold; font-size: 18px; }}
+            .info-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }}
+            .info-box {{ border: 1px solid #ddd; padding: 10px; }}
+            .img-container {{ text-align: center; margin: 20px 0; border: 1px solid #eee; padding: 10px; }}
+            img {{ max-width: 80%; height: auto; }}
+            table {{ width: 100%; border-collapse: collapse; font-size: 12px; }}
+            th, td {{ border: 1px solid #444; padding: 6px; }}
+            th {{ background-color: #eee; }}
+            .sec-row {{ background-color: #ddd; font-weight: bold; }}
+            .pass-ok {{ color: green; font-weight: bold; }}
+            .pass-no {{ color: red; font-weight: bold; }}
+            .pass-warn {{ color: orange; font-weight: bold; }}
+            .load-value {{ color: #D32F2F; font-weight: bold; }}
+
+            .footer {{ margin-top: 40px; page-break-inside: avoid; }}
+            .sign-box {{ width: 250px; text-align: center; margin-top: 20px; }}
+            .line {{ border-bottom: 1px solid #000; margin: 30px 0 5px 0; }}
+
+            /* Print Button Internal */
+            .print-btn-internal {{
+                background-color: #4CAF50; border: none; color: white; padding: 10px 20px;
+                text-align: center; display: inline-block; font-size: 16px; margin-bottom: 20px;
+                cursor: pointer; border-radius: 4px; font-family: 'Sarabun'; font-weight: bold;
+            }}
+            @media print {{ .no-print {{ display: none !important; }} }}
+        </style>
+    </head>
+    <body>
+        <div class="no-print" style="text-align: center;">
+            <button onclick="window.print()" class="print-btn-internal">🖨️ Print Report</button>
+        </div>
+
+        <div class="header">
+            <div class="id-box">{inputs['slab_id']}</div>
+            <h1>ENGINEERING DESIGN REPORT</h1>
+            <h3>RC One-Way Slab Design (ACI 318-19)</h3>
+        </div>
+
+        <div class="info-grid">
+            <div class="info-box">
+                <strong>Project:</strong> {inputs['project']}<br>
+                <strong>Engineer:</strong> {inputs['engineer']}<br>
+                <strong>Date:</strong> 16/12/2568
+            </div>
+            <div class="info-box">
+                <strong>Panel Size:</strong> {inputs['Lx']} x {inputs['Ly']} m<br>
+                <strong>Thickness:</strong> {inputs['h']} cm (Cover {inputs['cover']} cm)<br>
+                <strong>Materials:</strong> fc'={inputs['fc']}, fy={inputs['fy']} ksc
+            </div>
+        </div>
+
+        <h3>Design Visualization</h3>
+        <div class="img-container">
+            <img src="{img_base64}" />
+        </div>
+
+        <h3>Calculation Details</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th width="25%">Item</th><th width="20%">Formula</th><th width="25%">Substitution</th>
+                    <th width="15%">Result</th><th width="8%">Unit</th><th width="7%">Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {table_html}
+            </tbody>
+        </table>
+
+        <div class="footer">
+            <div class="sign-box">
+                <div style="text-align: left; font-weight: bold;">Designed by:</div>
+                <div class="line"></div>
+                <div>({inputs['engineer']})</div>
+                <div>Civil Engineer</div>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    return html
+
+
+# ==========================================
+# 6. UI MAIN
+# ==========================================
+st.title("RC Slab Design SDM (One-Way Auto)")
+
+with st.sidebar.form("input_form"):
+    st.header("Project Info")
+    project = st.text_input("Project Name", "อาคารพักอาศัย 2 ชั้น")
+    slab_id = st.text_input("Slab Mark", "S-01")
+    engineer = st.text_input("Engineer", "นายไกรฤทธิ์ ด่านพิทักษ์")
+
+    st.header("1. Geometry (Dimensions)")
+    c1, c2 = st.columns(2)
+    Lx = c1.number_input("Short Span: Lx (m)", value=3.0, step=0.1, min_value=0.1)
+    Ly = c2.number_input("Long Span: Ly (m)", value=7.0, step=0.1, min_value=0.1)
+
+    c3, c4 = st.columns(2)
+    h = c3.number_input("Thickness (cm)", value=12.0, step=1.0)
+    cover = c4.number_input("Cover (cm)", value=2.0, step=0.5)
+
+    st.header("2. Materials")
+    c1, c2 = st.columns(2)
+    fc = c1.number_input("fc' (ksc)", value=240)
+    fy = c2.number_input("fy (ksc)", value=4000)
+
+    st.header("3. Loads & Support")
+    c1, c2 = st.columns(2)
+    sdl = c1.number_input("SDL (kg/m²)", value=150.0)
+    ll = c2.number_input("LL (kg/m²)", value=300.0)
+    support = st.selectbox("Support Type",
+                           ["Simply Supported", "Continuous (One End)", "Continuous (Both)", "Cantilever"])
+
+    st.header("4. Bar Selection")
+    st.caption("Select preferred bar size. Spacing will be auto-calculated.")
+    mainBar = st.selectbox("Main Bar (Lx)", list(BAR_INFO.keys()), index=3)  # Default DB12
+    tempBar = st.selectbox("Temp Bar (Ly)", ['RB6', 'RB9', 'DB10'], index=1)  # Default RB9
+
+    run_btn = st.form_submit_button("Run Auto Design")
+
+if run_btn:
+    # Logic to ensure Lx is actually the shorter side
+    if Lx > Ly:
+        st.warning(f"⚠️ Warning: Input Lx ({Lx}m) is greater than Ly ({Ly}m). Swapping values automatically.")
+        Lx, Ly = Ly, Lx
+
+    inputs = {
+        'project': project, 'slab_id': slab_id, 'engineer': engineer,
+        'Lx': Lx, 'Ly': Ly, 'h': h, 'cover': cover,
+        'fc': fc, 'fy': fy, 'sdl': sdl, 'll': ll,
+        'support': support, 'mainBar': mainBar, 'tempBar': tempBar
+    }
+
+    # 1. Calculate
+    rows, s_main, s_temp = process_slab_calculation(inputs)
+
+    # 2. Draw
+    img_base64 = fig_to_base64(plot_slab_section(h, cover, mainBar, s_main, tempBar, s_temp))
+
+    # 3. Report
+    html_report = generate_report(inputs, rows, img_base64)
+
+    st.success("✅ Auto-Design Complete!")
+    components.html(html_report, height=1200, scrolling=True)
+
+else:
+    st.info("👈 Please enter slab dimensions (Lx, Ly) and properties to design.")
