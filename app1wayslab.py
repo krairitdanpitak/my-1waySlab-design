@@ -540,7 +540,8 @@ with st.sidebar.form("input_form"):
     st.header("4. Bar Selection")
     st.caption("Select preferred bar size. Spacing will be auto-calculated.")
     mainBar = st.selectbox("Main Bar (Lx)", list(BAR_INFO.keys()), index=3)  # Default DB12
-    tempBar = st.selectbox("Temp Bar (Ly)", ['RB6', 'RB9', 'DB10'], index=1)  # Default RB9
+    # --- UPDATED HERE: Use full list for Temp Bar as well ---
+    tempBar = st.selectbox("Temp Bar (Ly)", list(BAR_INFO.keys()), index=1)  # Default RB9
 
     run_btn = st.form_submit_button("Run Auto Design")
 
