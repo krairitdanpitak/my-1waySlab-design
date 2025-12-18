@@ -77,129 +77,122 @@ def fmt(n, digits=2):
 
 def fig_to_base64(fig):
     buf = io.BytesIO()
-    fig.savefig(buf, format='png', bbox_inches='tight')
+    fig.savefig(buf, format='png', bbox_inches='tight', dpi=100)
     buf.seek(0)
     plt.close(fig)  # Memory cleanup
     return f"data:image/png;base64,{base64.b64encode(buf.read()).decode()}"
 
 
 # ==========================================
-# 3. PLOTTING FUNCTION (Updated for Cantilever)
+# 3. PLOTTING FUNCTION (Updated: Rectangular Beams & Dimensions)
 # ==========================================
-def plot_slab_section(h_cm, cover_cm, main_key, s_main, temp_key, s_temp, support_type):
-    fig, ax = plt.subplots(figsize=(8, 4))
+def plot_slab_section(Lx_m, h_cm, cover_cm, main_key, s_main, temp_key, s_temp, support_type):
+    fig, ax = plt.subplots(figsize=(10, 5))
 
-    # Common parameters
-    pad = 0.03 + (cover_cm / 100)  # visual padding + cover
+    # Scale setup: Drawing in meters
+    h_m = h_cm / 100.0
+    beam_w = 0.25  # width of support beam
+    beam_d = 0.50  # depth of support beam
 
+    pad = 0.03 + (cover_cm / 100)  # Rebar offset
+
+    # --- 1. Draw Concrete Geometry ---
     if support_type == "Cantilever":
-        # --- DRAWING FOR CANTILEVER (พื้นยื่น) ---
-        slab_len_draw = 1.5  # Fixed visual length
-        beam_w = 0.30  # Visual beam width
-        beam_d = 0.50  # Visual beam depth
-        slab_h_draw = h_cm / 100
-
-        # 1. Concrete
-        # Beam (Left support)
+        # Supports: Fixed at Left
+        # Beam (Left)
         ax.add_patch(patches.Rectangle((-beam_w, -beam_d), beam_w, beam_d,
                                        facecolor='white', edgecolor='black', linewidth=1.5))
-        # Slab (Cantilever part)
-        ax.add_patch(patches.Rectangle((0, -slab_h_draw), slab_len_draw, slab_h_draw,
-                                       facecolor='#f9f9f9', edgecolor='black', linewidth=1.5))
+        # Slab (Extending Right)
+        ax.add_patch(patches.Rectangle((0, 0), Lx_m, h_m,
+                                       facecolor='#f0f0f0', edgecolor='black', linewidth=1.5))
 
-        # 2. Main Rebar (Top Steel - Tension) -> Blue Line
-        # Path: Hook in beam -> Top of slab -> Hook down at end
-        bar_y = -pad
+        # Dimension L (Bottom)
+        ax.annotate(text='', xy=(0, -0.15), xytext=(Lx_m, -0.15), arrowprops=dict(arrowstyle='<->'))
+        ax.text(Lx_m / 2, -0.25, f"L = {Lx_m:.2f} m", ha='center', fontsize=11, fontweight='bold')
 
-        # Points: [Start(in beam), Corner(in beam), End(slab tip), Hook(down)]
-        x_pts = [-beam_w + pad, -beam_w + pad, slab_len_draw - pad, slab_len_draw - pad]
-        y_pts = [-beam_d + pad, bar_y, bar_y, bar_y - 0.10]
+        # Rebar (Top Main)
+        ax.plot([-beam_w + 0.05, Lx_m - pad], [h_m - pad, h_m - pad], color='blue', linewidth=3)
+        # Hook down
+        ax.plot([Lx_m - pad, Lx_m - pad], [h_m - pad, h_m - pad - 0.1], color='blue', linewidth=3)
 
-        ax.plot(x_pts, y_pts, color='blue', linewidth=3.0)
+        # Label Main
+        ax.annotate(f"Main(Top): {main_key}@{s_main:.0f}cm",
+                    xy=(Lx_m / 2, h_m - pad), xytext=(Lx_m / 2, h_m + 0.3),
+                    arrowprops=dict(facecolor='blue', arrowstyle='->'),
+                    fontsize=10, color='blue', fontweight='bold', ha='center')
 
-        # 3. Temp Rebar (Distribution - Under Main) -> Red Dots
-        dist_y = bar_y - 0.02 - 0.012  # slightly below main bar
-        dot_spacing = 0.20
-        n_dots = int((slab_len_draw) / dot_spacing)
-
-        for i in range(n_dots):
-            cx = (i * dot_spacing) + 0.1
-            if cx < slab_len_draw - pad:
-                ax.add_patch(patches.Circle((cx, dist_y), radius=0.015, color='red'))
-
-        # 4. Dimensions & Text
-        # Beam Dimension
-        ax.annotate(f"{beam_w:.2f}m", xy=(-beam_w / 2, -beam_d - 0.05), ha='center', fontsize=9, color='brown')
-
-        # Slab Thickness
-        ax.text(slab_len_draw / 2, -slab_h_draw / 2, f"t = {h_cm:.0f} cm", ha='center', va='center', fontsize=10)
-
-        # Rebar Labels
-        ax.annotate(f"Main (Top): {main_key}@{s_main:.0f}cm",
-                    xy=(slab_len_draw / 3, bar_y), xytext=(slab_len_draw / 3, 0.2),
-                    arrowprops=dict(facecolor='blue', arrowstyle='->'), fontsize=10, color='blue', fontweight='bold')
-
-        ax.annotate(f"Temp (Dist.): {temp_key}@{s_temp:.0f}cm",
-                    xy=(0.1 + dot_spacing, dist_y), xytext=(0.5, 0.4),
-                    arrowprops=dict(facecolor='red', arrowstyle='->'), fontsize=10, color='red', fontweight='bold')
-
-        ax.set_xlim(-beam_w - 0.2, slab_len_draw + 0.2)
-        ax.set_ylim(-beam_d - 0.2, 0.6)
+        # Limit
+        ax.set_xlim(-beam_w - 0.5, Lx_m + 0.5)
 
     else:
-        # --- DRAWING FOR STANDARD (Simply / Continuous) ---
-        slab_len_draw = 4.0
-        beam_w = 0.3
-        slab_h_draw = 0.4  # Visual relative height
+        # Simply / Continuous
+        # Beam Left
+        ax.add_patch(patches.Rectangle((-beam_w, -beam_d), beam_w, beam_d,
+                                       facecolor='white', edgecolor='black', linewidth=1.5))
+        # Beam Right
+        ax.add_patch(patches.Rectangle((Lx_m, -beam_d), beam_w, beam_d,
+                                       facecolor='white', edgecolor='black', linewidth=1.5))
+        # Slab
+        ax.add_patch(patches.Rectangle((0, 0), Lx_m, h_m,
+                                       facecolor='#f0f0f0', edgecolor='black', linewidth=1.5))
 
-        # Concrete
-        ax.add_patch(patches.Rectangle((0, -0.6), beam_w, 0.6, facecolor='white', edgecolor='black', linewidth=1.5))
-        ax.add_patch(
-            patches.Rectangle((slab_len_draw + beam_w, -0.6), beam_w, 0.6, facecolor='white', edgecolor='black',
-                              linewidth=1.5))
-        ax.add_patch(
-            patches.Rectangle((0, 0), slab_len_draw + 2 * beam_w, slab_h_draw, facecolor='#f9f9f9', edgecolor='black',
-                              linewidth=1.5))
+        # Dimension L (Bottom) spans between inside faces of supports
+        ax.annotate(text='', xy=(0, -0.2), xytext=(Lx_m, -0.2), arrowprops=dict(arrowstyle='<->'))
+        ax.text(Lx_m / 2, -0.3, f"L = {Lx_m:.2f} m", ha='center', fontsize=11, fontweight='bold')
 
-        # Main Rebar (Bottom Steel - Tension) -> Blue Line
-        ax.plot([pad, slab_len_draw + 2 * beam_w - pad], [pad, pad], color='blue', linewidth=2.5)
+        # Rebar (Bottom Main)
+        ax.plot([pad, Lx_m - pad], [pad, pad], color='blue', linewidth=3)
         # Hooks
-        ax.plot([pad, pad], [pad, pad + 0.15], color='blue', linewidth=2.5)
-        ax.plot([slab_len_draw + 2 * beam_w - pad, slab_len_draw + 2 * beam_w - pad], [pad, pad + 0.15], color='blue',
-                linewidth=2.5)
+        ax.plot([pad, pad], [pad, pad + 0.1], color='blue', linewidth=3)
+        ax.plot([Lx_m - pad, Lx_m - pad], [pad, pad + 0.1], color='blue', linewidth=3)
 
-        # Temp Rebar (Top of Bottom) -> Red Dots
-        dot_spacing = 0.25
-        n_dots = int((slab_len_draw + 2 * beam_w) / dot_spacing)
-        for i in range(1, n_dots):
-            cx = i * dot_spacing
-            ax.add_patch(patches.Circle((cx, pad + 0.07), radius=0.04, color='red'))
+        # Label Main
+        ax.annotate(f"Main(Bot): {main_key}@{s_main:.0f}cm",
+                    xy=(Lx_m / 2, pad), xytext=(Lx_m / 2, h_m + 0.3),
+                    arrowprops=dict(facecolor='blue', arrowstyle='->'),
+                    fontsize=10, color='blue', fontweight='bold', ha='center')
 
-        # Labels
-        ax.text((slab_len_draw / 2) + beam_w, slab_h_draw / 2, f"Thickness t = {h_cm:.0f} cm", ha='center', va='center',
-                fontsize=11)
+        # Limit
+        ax.set_xlim(-beam_w - 0.5, Lx_m + beam_w + 0.5)
 
-        ax.annotate(f"Main (Bottom): {main_key}@{s_main:.0f}cm",
-                    xy=(slab_len_draw / 2 + beam_w, pad), xytext=(slab_len_draw / 2, -0.4),
-                    arrowprops=dict(facecolor='blue', arrowstyle='->'), fontsize=10, color='blue', fontweight='bold')
+    # --- Common Elements ---
 
-        ax.annotate(f"Temp (Long): {temp_key}@{s_temp:.0f}cm",
-                    xy=(slab_len_draw / 2 + beam_w + 0.2, pad + 0.07),
-                    xytext=(slab_len_draw / 2 + 1.5, slab_h_draw + 0.3),
-                    arrowprops=dict(facecolor='red', arrowstyle='->'), fontsize=10, color='red', fontweight='bold')
+    # Dimension Thickness h (Right Side)
+    # Find a good X position for the dimension line (slightly to the right of the structure)
+    dim_x = Lx_m + 0.1 if support_type == "Cantilever" else Lx_m + beam_w + 0.1
+    ax.annotate(text='', xy=(dim_x, 0), xytext=(dim_x, h_m), arrowprops=dict(arrowstyle='<->'))
+    ax.text(dim_x + 0.05, h_m / 2, f"h = {h_m:.2f} m", va='center', fontsize=10, rotation=90)
 
-        ax.set_xlim(-0.2, slab_len_draw + 2 * beam_w + 0.2)
-        ax.set_ylim(-0.8, slab_h_draw + 0.6)
+    # Temp Rebar (Dots)
+    # Draw dots along the span
+    dot_spacing = 0.25  # visual spacing
+    n_dots = int(Lx_m / dot_spacing)
+    dot_y = h_m - pad - 0.02 if support_type == "Cantilever" else pad + 0.02 + 0.015  # Below top or Above bottom
 
+    for i in range(1, n_dots + 1):
+        cx = i * dot_spacing
+        if cx < Lx_m:
+            ax.add_patch(patches.Circle((cx, dot_y), radius=0.015, color='red'))
+
+    # Label Temp (Just one label)
+    lbl_x = dot_spacing * 2
+    ax.annotate(f"Temp: {temp_key}@{s_temp:.0f}cm",
+                xy=(lbl_x, dot_y), xytext=(lbl_x + 0.5, dot_y + 0.2 if support_type != "Cantilever" else dot_y - 0.2),
+                arrowprops=dict(facecolor='red', arrowstyle='->'),
+                fontsize=10, color='red', fontweight='bold')
+
+    # Plot Clean up
+    ax.set_ylim(-beam_d - 0.2, h_m + 0.6)
     ax.axis('off')
+    ax.set_title(f"Cross Section: {support_type} (Not to Scale)", fontsize=12)
     plt.tight_layout()
     return fig
 
 
 # ==========================================
-# 4. CALCULATION LOGIC
+# 4. CALCULATION LOGIC (Updated: Auto Thickness)
 # ==========================================
-def process_slab_calculation(inputs):
+def process_slab_calculation(inputs, auto_h_flag):
     rows = []
 
     def sec(title):
@@ -208,12 +201,12 @@ def process_slab_calculation(inputs):
     def row(item, formula, subs, result, unit, status=""):
         rows.append([item, formula, subs, result, unit, status])
 
-    # Unpack
+    # Unpack basic inputs
     fc = inputs['fc'];
     fy = inputs['fy']
     Lx = inputs['Lx'];
     Ly = inputs['Ly']
-    h_cm = inputs['h'];
+    # h_cm comes later
     cover_cm = inputs['cover']
     sdl = inputs['sdl'];
     ll = inputs['ll']
@@ -221,39 +214,77 @@ def process_slab_calculation(inputs):
     temp_key = inputs['tempBar']
     support = inputs['support']
 
-    # 1. Geometry & Type Check
+    # 1. Geometry Check
     sec("1. GEOMETRY & SLAB TYPE")
-    row("Short Span", "Lx", "-", f"{Lx:.2f}", "m")
-    row("Long Span", "Ly", "-", f"{Ly:.2f}", "m")
+    row("Short Span (Lx)", "Input", "-", f"{Lx:.2f}", "m")
+    row("Long Span (Ly)", "Input", "-", f"{Ly:.2f}", "m")
 
     ratio = Ly / Lx
     slab_type = "One-Way Slab" if ratio > 2.0 else "Two-Way Slab"
     status_type = "OK" if ratio > 2.0 else "WARNING"
-
     row("Ratio Ly/Lx", f"{Ly:.2f} / {Lx:.2f}", "-", f"{ratio:.2f}", "-", status_type)
-    row("Slab Type Check", "Ratio > 2.0?", "-", slab_type, "-", status_type)
 
     if ratio <= 2.0:
         rows.append(
-            ["Note", "Since Ly/Lx ≤ 2.0, it behaves as Two-Way.", "Design as One-Way is Conservative.", "-", "-",
-             "INFO"])
+            ["Note", "Ly/Lx ≤ 2.0 acts as Two-Way.", "Design as One-Way is safe but conservative.", "-", "-", "INFO"])
 
-    # 2. Load Analysis
-    sec("2. LOAD ANALYSIS (Design Strip b = 1 m)")
-    w_sw = 2400 * (h_cm / 100)
+    # 2. Thickness Design (Manual or Auto)
+    sec("2. THICKNESS DESIGN (Deflection Control)")
+
+    # Determine Divisor based on support
+    if support == "Simply Supported":
+        div = 20.0
+    elif support == "Continuous (One End)":
+        div = 24.0
+    elif support == "Continuous (Both)":
+        div = 28.0
+    elif support == "Cantilever":
+        div = 10.0
+    else:
+        div = 20.0
+
+    # Minimum h formula (ACI/EIT)
+    correction_factor = (0.4 + fy / 7000)
+    h_min = (Lx * 100 / div) * correction_factor
+
+    if auto_h_flag:
+        # Auto calc: Round up to nearest integer
+        h_use = math.ceil(h_min)
+        calc_note = "Auto-Calculated"
+        status_h = "AUTO"
+    else:
+        # Manual input
+        h_use = inputs['h']
+        calc_note = "User Input"
+        status_h = "CHECK"
+
+    row("Min. Thickness (h_min)", f"L/{div:.0f} · (0.4+fy/7000)", f"{Lx * 100:.0f}/{div:.0f} · {correction_factor:.2f}",
+        f"{h_min:.2f}", "cm")
+
+    if not auto_h_flag:
+        pass_h = "PASS" if h_use >= h_min else "FAIL (Too Thin)"
+        row("Design Thickness (h)", calc_note, f"{h_use} ≥ {h_min:.2f}", f"{h_use:.0f}", "cm", pass_h)
+    else:
+        row("Design Thickness (h)", f"RoundUp(h_min)", f"Ceil({h_min:.2f})", f"{h_use:.0f}", "cm", "SELECTED")
+
+    # 3. Load Analysis
+    sec("3. LOAD ANALYSIS (Design Strip b = 1 m)")
+    w_sw = 2400 * (h_use / 100)
     w_dead = w_sw + sdl
     wu = 1.2 * w_dead + 1.6 * ll
 
+    row("Slab Weight (SW)", "2400 · h", f"2400 · {h_use / 100:.2f}", f"{w_sw:.1f}", "kg/m²")
+    row("Dead Load (DL)", "SW + SDL", f"{w_sw:.1f} + {sdl}", f"{w_dead:.1f}", "kg/m²")
     row("Factored Load (wu)", "1.2D + 1.6L", f"1.2({w_dead:.0f}) + 1.6({ll})", f"{fmt(wu)}", "kg/m")
 
-    # 3. Flexural Design (Short Span - Lx)
-    sec("3. SHORT SPAN DESIGN (MAIN STEEL)")
+    # 4. Flexural Design (Main Steel)
+    sec("4. MAIN STEEL DESIGN")
 
-    # Coef
+    # Moment Coef
     if support == "Simply Supported":
         coef = 8.0
     elif "Continuous" in support:
-        coef = 10.0
+        coef = 10.0  # Simplified conservative
     elif support == "Cantilever":
         coef = 2.0
     else:
@@ -263,10 +294,10 @@ def process_slab_calculation(inputs):
     Mu_kgcm = Mu_kgm * 100
 
     db_main = BAR_INFO[main_key]['d_mm']
-    d = h_cm - cover_cm - (db_main / 10) / 2
+    d = h_use - cover_cm - (db_main / 10) / 2
 
-    row("Design Moment (Mu)", f"wu · Lx² / {coef:.0f}", f"{fmt(wu)}·{Lx}²/{coef:.0f}", f"{fmt(Mu_kgm)}", "kg-m")
-    row("Effective Depth (d)", "h - cov - db/2", f"{h_cm}-{cover_cm}-{db_main / 20}", f"{d:.2f}", "cm")
+    row("Design Moment (Mu)", f"wu · L² / {coef:.0f}", f"{fmt(wu)}·{Lx}²/{coef:.0f}", f"{fmt(Mu_kgm)}", "kg-m")
+    row("Effective Depth (d)", "h - cov - db/2", f"{h_use}-{cover_cm}-{db_main / 20}", f"{d:.2f}", "cm")
 
     # Rn & Rho
     phi = 0.90;
@@ -279,7 +310,7 @@ def process_slab_calculation(inputs):
         term = 1 - (2 * Rn) / (0.85 * fc)
         if term < 0:
             rho_req = 0;
-            status_flex = "FAIL (Thicken Slab)"
+            status_flex = "FAIL (Section too small)"
         else:
             rho_req = (0.85 * fc / fy) * (1 - math.sqrt(term))
     except:
@@ -287,86 +318,55 @@ def process_slab_calculation(inputs):
         status_flex = "CALC ERROR"
 
     As_flex_req = rho_req * b * d
-    As_min_req = rho_min * b * h_cm
+    As_min_req = rho_min * b * h_use
 
-    # Determine Control
-    if As_flex_req >= As_min_req:
-        As_req_short = As_flex_req
-        control = "Flexure Controls"
-    else:
-        As_req_short = As_min_req
-        control = "Min Steel Controls"
+    control = "Flexure Controls" if As_flex_req >= As_min_req else "Min Steel Controls"
+    As_req_short = max(As_flex_req, As_min_req)
 
-    row("Required As (Short)", control, f"max(ρbd, 0.0018bh)", f"{fmt(As_req_short)}", "cm²")
+    row("Required As", control, f"max({fmt(As_flex_req)}, {fmt(As_min_req)})", f"{fmt(As_req_short)}", "cm²")
 
     # Select Main Bar
     Ab_main = BAR_INFO[main_key]['A_cm2']
     s_calc = (Ab_main * 100) / As_req_short
-    s_max = min(3 * h_cm, 45.0)
-    s_main = math.floor(min(s_calc, s_max) * 2) / 2
+    s_max = min(3 * h_use, 45.0)
+    s_main = math.floor(min(s_calc, s_max) * 2) / 2  # Round down to nearest 0.5
     As_prov_main = (Ab_main * 100) / s_main
 
     row("Provide Main Steel", f"Use {main_key}", f"@{s_main:.1f} cm", f"{fmt(As_prov_main)}", "cm²", status_flex)
 
-    # 4. Temperature Steel (Long Span - Ly)
-    sec("4. LONG SPAN DESIGN (TEMP STEEL)")
-    As_req_long = 0.0018 * b * h_cm
-    row("Required As (Long)", "0.0018 · b · h", f"0.0018 · 100 · {h_cm}", f"{fmt(As_req_long)}", "cm²")
+    # 5. Temperature Steel
+    sec("5. TEMPERATURE STEEL")
+    As_req_long = 0.0018 * b * h_use
+    row("Required As (Temp)", "0.0018 · b · h", f"0.0018 · 100 · {h_use}", f"{fmt(As_req_long)}", "cm²")
 
     Ab_temp = BAR_INFO[temp_key]['A_cm2']
     s_t_calc = (Ab_temp * 100) / As_req_long
-    s_t_max = min(5 * h_cm, 45.0)
+    s_t_max = min(5 * h_use, 45.0)
     s_temp = math.floor(min(s_t_calc, s_t_max) * 2) / 2
     As_prov_temp = (Ab_temp * 100) / s_temp
 
     row("Provide Temp Steel", f"Use {temp_key}", f"@{s_temp:.1f} cm", f"{fmt(As_prov_temp)}", "cm²", "OK")
 
-    # 5. Shear & Deflection (UPDATED ACI/EIT)
-    sec("5. CHECKS")
-
-    # --- Shear Check ---
+    # 6. Shear Check
+    sec("6. SHEAR CHECK")
     Vu = (wu * Lx) / 2 if support != "Cantilever" else wu * Lx
     Vc = 0.53 * math.sqrt(fc) * b * d
     phi_shear = 0.85
     phi_Vc = phi_shear * Vc
 
-    status_shear = "PASS" if phi_Vc >= Vu else "FAIL"
-    row("Shear Check", "φVc ≥ Vu", f"{fmt(phi_Vc)} ≥ {fmt(Vu)}", status_shear, "kg", status_shear)
+    status_shear = "PASS" if phi_Vc >= Vu else "FAIL (Thicken Slab)"
+    row("Factored Shear (Vu)", "-", "-", f"{fmt(Vu)}", "kg")
+    row("Shear Capacity (φVc)", "0.85 · 0.53√fc · bd", f"0.85 · 0.53√{fc} · 100 · {d:.2f}", f"{fmt(phi_Vc)}", "kg",
+        status_shear)
 
-    # --- Deflection Check (h_min) ---
-    if support == "Simply Supported":
-        ratio_def = 20.0
-    elif support == "Continuous (One End)":
-        ratio_def = 24.0
-    elif support == "Continuous (Both)":
-        ratio_def = 28.0
-    elif support == "Cantilever":
-        ratio_def = 10.0
-    else:
-        ratio_def = 20.0
-
-    correction_factor = (0.4 + fy / 7000)
-    h_min = (Lx * 100 / ratio_def) * correction_factor
-
-    status_defl = "PASS" if h_cm >= h_min else "CHECK"
-    row("Deflection Check", f"L/{ratio_def:.0f} · (0.4+fy/7000)", f"{h_cm} ≥ {fmt(h_min)}", status_defl, "cm",
-        status_defl)
-
-    if status_defl == "CHECK":
-        rows.append(["Note", f"Req h_min = {fmt(h_min)} cm", "Consider increasing thickness", "-", "-", "WARNING"])
-
-    # Final
-    sec("6. CONCLUSION")
-    final_status = "COMPLETE" if status_flex == "OK" and status_shear == "PASS" else "REVIEW"
-    row("Design Status", "-", "-", final_status, "-", final_status)
-
-    return rows, s_main, s_temp
+    # Final Return
+    return rows, s_main, s_temp, h_use
 
 
 # ==========================================
 # 5. HTML REPORT GENERATOR
 # ==========================================
-def generate_report(inputs, rows, img_base64):
+def generate_report(inputs, rows, img_base64, h_final):
     table_html = ""
     for r in rows:
         if r[0] == "SECTION":
@@ -438,11 +438,11 @@ def generate_report(inputs, rows, img_base64):
             <div class="info-box">
                 <strong>Project:</strong> {inputs['project']}<br>
                 <strong>Engineer:</strong> {inputs['engineer']}<br>
-                <strong>Date:</strong> 16/12/2568
+                <strong>Date:</strong> 18/12/2568
             </div>
             <div class="info-box">
                 <strong>Panel Size:</strong> {inputs['Lx']} x {inputs['Ly']} m ({inputs['support']})<br>
-                <strong>Thickness:</strong> {inputs['h']} cm (Cover {inputs['cover']} cm)<br>
+                <strong>Thickness:</strong> {h_final:.0f} cm (Cover {inputs['cover']} cm)<br>
                 <strong>Materials:</strong> fc'={inputs['fc']}, fy={inputs['fy']} ksc
             </div>
         </div>
@@ -495,9 +495,18 @@ with st.sidebar.form("input_form"):
     Lx = c1.number_input("Short Span: Lx (m)", value=3.0, step=0.1, min_value=0.1)
     Ly = c2.number_input("Long Span: Ly (m)", value=7.0, step=0.1, min_value=0.1)
 
+    # --- UPDATED: Auto Thickness Feature ---
+    st.subheader("Thickness Design")
+    auto_thick = st.checkbox("✅ Auto-calculate Slab Thickness", value=True,
+                             help="Calculate minimum thickness for deflection control automatically")
+
     c3, c4 = st.columns(2)
-    h = c3.number_input("Thickness (cm)", value=12.0, step=1.0)
-    cover = c4.number_input("Cover (cm)", value=2.0, step=0.5)
+    if auto_thick:
+        h_input = c3.number_input("Manual Thickness (Ignored)", value=0.0, disabled=True)
+    else:
+        h_input = c3.number_input("Thickness (cm)", value=12.0, step=1.0)
+
+    cover = c4.number_input("Cover (cm)", value=2.5, step=0.5)
 
     st.header("2. Materials")
     c1, c2 = st.columns(2)
@@ -509,7 +518,6 @@ with st.sidebar.form("input_form"):
     sdl = c1.number_input("SDL (kg/m²)", value=150.0)
     ll = c2.number_input("LL (kg/m²)", value=300.0)
 
-    # Updated Support List
     support = st.selectbox("Support Type", [
         "Simply Supported",
         "Continuous (One End)",
@@ -525,27 +533,26 @@ with st.sidebar.form("input_form"):
     run_btn = st.form_submit_button("Run Auto Design")
 
 if run_btn:
-    # Logic to ensure Lx is actually the shorter side (Unless Cantilever which has distinct direction)
-    # Note: For Cantilever, Lx is usually the Overhang Length.
+    # Logic to ensure Lx is actually the shorter side (Unless Cantilever)
     if support != "Cantilever" and Lx > Ly:
         st.warning(f"⚠️ Warning: Input Lx ({Lx}m) is greater than Ly ({Ly}m). Swapping values automatically.")
         Lx, Ly = Ly, Lx
 
     inputs = {
         'project': project, 'slab_id': slab_id, 'engineer': engineer,
-        'Lx': Lx, 'Ly': Ly, 'h': h, 'cover': cover,
+        'Lx': Lx, 'Ly': Ly, 'h': h_input, 'cover': cover,
         'fc': fc, 'fy': fy, 'sdl': sdl, 'll': ll,
         'support': support, 'mainBar': mainBar, 'tempBar': tempBar
     }
 
-    # 1. Calculate
-    rows, s_main, s_temp = process_slab_calculation(inputs)
+    # 1. Calculate (Pass Auto Flag)
+    rows, s_main, s_temp, h_final = process_slab_calculation(inputs, auto_thick)
 
-    # 2. Draw (Pass support type)
-    img_base64 = fig_to_base64(plot_slab_section(h, cover, mainBar, s_main, tempBar, s_temp, support))
+    # 2. Draw (Use h_final)
+    img_base64 = fig_to_base64(plot_slab_section(Lx, h_final, cover, mainBar, s_main, tempBar, s_temp, support))
 
     # 3. Report
-    html_report = generate_report(inputs, rows, img_base64)
+    html_report = generate_report(inputs, rows, img_base64, h_final)
 
     st.success("✅ Auto-Design Complete!")
     components.html(html_report, height=1200, scrolling=True)
