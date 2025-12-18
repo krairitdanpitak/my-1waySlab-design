@@ -1,7 +1,7 @@
 import streamlit as st
 import matplotlib
 
-# ตั้งค่า Backend เป็น Agg เพื่อป้องกันปัญหา Thread ใน Streamlit
+# Set backend to Agg to prevent thread issues in Streamlit
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
@@ -19,7 +19,7 @@ st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap');
 
-    /* สไตล์ปุ่ม Print */
+    /* Print Button Style */
     .print-btn-internal {
         background-color: #4CAF50;
         border: none;
@@ -38,7 +38,7 @@ st.markdown("""
     }
     .print-btn-internal:hover { background-color: #45a049; }
 
-    /* ตารางรายงาน */
+    /* Report Table Style */
     .report-table {width: 100%; border-collapse: collapse; font-family: 'Sarabun', sans-serif; font-size: 14px;}
     .report-table th, .report-table td {border: 1px solid #ddd; padding: 8px;}
     .report-table th {background-color: #f2f2f2; text-align: center; font-weight: bold;}
@@ -77,125 +77,141 @@ def fmt(n, digits=2):
 
 def fig_to_base64(fig):
     buf = io.BytesIO()
-    fig.savefig(buf, format='png', bbox_inches='tight', dpi=120)
+    fig.savefig(buf, format='png', bbox_inches='tight')
     buf.seek(0)
     plt.close(fig)  # Memory cleanup
     return f"data:image/png;base64,{base64.b64encode(buf.read()).decode()}"
 
 
 # ==========================================
-# 3. PLOTTING FUNCTION (SCHEMATIC VERSION)
+# 3. PLOTTING FUNCTION (UPDATED WITH DIMENSIONS)
 # ==========================================
-def plot_slab_section_schematic(Lx_real, h_cm_real, cover_cm, main_key, s_main, temp_key, s_temp, support_type):
-    # สร้างรูปภาพ
+def plot_slab_section(h_cm, cover_cm, main_key, s_main, temp_key, s_temp, support_type, Lx_real):
+    """
+    Lx_real: ความยาวจริง (m) เพื่อนำมาแสดงใน Text
+    """
     fig, ax = plt.subplots(figsize=(10, 5))
 
-    # --- CONSTANTS สำหรับการวาด (Schematic Only) ---
-    # ไม่ใช้สเกลจริง เพื่อความสวยงามและเห็นเหล็กชัดเจนตามที่ขอ
-    DRAW_L = 5.0  # ความยาวพื้นในรูปวาด (สมมติ)
-    DRAW_H = 0.8  # ความหนาพื้นในรูปวาด (หนาพอที่จะใส่เหล็กได้สบายๆ)
-    BEAM_W = 0.5  # ความกว้างคาน
-    BEAM_D = 1.0  # ความลึกคาน
-    PAD = 0.15  # ระยะหุ้มสมมติในรูป (เพื่อให้เหล็กไม่ชนขอบ)
+    # Helper to draw dimension line
+    def draw_dim(ax, x1, y1, x2, y2, text, offset_y=0, offset_x=0):
+        """วาดเส้นบอกระยะพร้อมลูกศรและตัวหนังสือ"""
+        d_x1, d_y1 = x1 + offset_x, y1 + offset_y
+        d_x2, d_y2 = x2 + offset_x, y2 + offset_y
 
-    # สี
-    C_CONC = '#FFFFFF'  # สีคอนกรีต (ขาว)
-    C_LINE = 'black'  # เส้นขอบ
-    C_MAIN = 'blue'  # เหล็กเมน
-    C_TEMP = 'red'  # เหล็กกันร้าว
+        # 1. เส้น Arrow
+        ax.annotate("", xy=(d_x1, d_y1), xytext=(d_x2, d_y2),
+                    arrowprops=dict(arrowstyle='<|-|>', lw=1.0, color='black'))
 
-    # 1. วาดคอนกรีต (Concrete)
-    # คานซ้าย
-    ax.add_patch(patches.Rectangle((-BEAM_W, -BEAM_D), BEAM_W, BEAM_D + DRAW_H, facecolor=C_CONC, edgecolor=C_LINE,
-                                   linewidth=1.5))
-    # คานขวา
-    ax.add_patch(patches.Rectangle((DRAW_L, -BEAM_D), BEAM_W, BEAM_D + DRAW_H, facecolor=C_CONC, edgecolor=C_LINE,
-                                   linewidth=1.5))
-    # พื้น
-    ax.add_patch(patches.Rectangle((0, 0), DRAW_L, DRAW_H, facecolor=C_CONC, edgecolor=C_LINE, linewidth=1.5))
+        # 2. Extension lines
+        ax.plot([x1, d_x1], [y1, d_y1], color='black', lw=0.5, linestyle='--')
+        ax.plot([x2, d_x2], [y2, d_y2], color='black', lw=0.5, linestyle='--')
 
-    # 2. วาดเหล็กเสริม (Rebar)
-    # ตำแหน่ง Y ของเหล็ก (สมมติให้สวยงาม ไม่ใช่ระยะจริง)
-    y_top = DRAW_H - PAD
-    y_bot = PAD
+        # 3. Text
+        mid_x = (d_x1 + d_x2) / 2
+        mid_y = (d_y1 + d_y2) / 2
+
+        if abs(y2 - y1) < abs(x2 - x1):  # Horizontal
+            ax.text(mid_x, mid_y + 0.05, text, ha='center', va='bottom', fontsize=11, fontweight='bold', color='black',
+                    backgroundcolor='white')
+        else:  # Vertical
+            ax.text(mid_x - 0.05, mid_y, text, ha='right', va='center', fontsize=11, fontweight='bold', color='black',
+                    backgroundcolor='white')
+
+    # Parameters for Visual
+    slab_h_draw = 0.4  # Visual height
+    beam_w = 0.4  # Visual beam width
+    beam_d = 0.8  # Visual beam depth
+    cover_visual = 0.05
+
+    concrete_color = '#f0f0f0'
+    concrete_edge = 'black'
+    hatch_style = '///'
 
     if support_type == "Cantilever":
-        # --- พื้นยื่น (Cantilever) ---
-        # เหล็กบน (Main Top)
-        ax.plot([-BEAM_W / 2, DRAW_L - PAD], [y_top, y_top], color=C_MAIN, linewidth=3)  # เส้นนอน
-        ax.plot([DRAW_L - PAD, DRAW_L - PAD], [y_top, y_top - 0.3], color=C_MAIN, linewidth=3)  # งอลงปลาย
-        ax.plot([-BEAM_W / 2, -BEAM_W / 2], [y_top, y_top - 0.5], color=C_MAIN, linewidth=3)  # งอลงในคาน
+        # --- CANTILEVER ---
+        slab_len_draw = 3.0
 
-        # เหล็กกันร้าว (Temp) - จุดแดงด้านล่าง
-        n_dots = 6
-        spacing = DRAW_L / (n_dots + 1)
-        for i in range(1, n_dots + 1):
-            ax.add_patch(patches.Circle((i * spacing, y_bot), radius=0.06, color=C_TEMP))
+        # Beam (Left)
+        beam = patches.Rectangle((-beam_w, -beam_d), beam_w, beam_d,
+                                 facecolor='white', edgecolor=concrete_edge, hatch=hatch_style)
+        ax.add_patch(beam)
 
-        # Label Text
-        txt_main = f"Main(Top): {main_key}@{s_main:.0f}cm"
-        txt_temp = f"Temp(Bot): {temp_key}@{s_temp:.0f}cm"
+        # Slab
+        slab = patches.Rectangle((0, -slab_h_draw), slab_len_draw, slab_h_draw,
+                                 facecolor=concrete_color, edgecolor=concrete_edge)
+        ax.add_patch(slab)
+
+        # Rebar
+        bar_y = -cover_visual
+        x_pts = [-beam_w / 2, slab_len_draw - cover_visual]
+        y_pts = [bar_y, bar_y]
+        x_hook = [x_pts[-1], x_pts[-1]]
+        y_hook = [bar_y, bar_y - 0.2]
+
+        ax.plot(x_pts, y_pts, color='blue', lw=3)
+        ax.plot(x_hook, y_hook, color='blue', lw=3)
+
+        # Temp Bar
+        dist_y = bar_y - 0.05
+        spacing_draw = 0.3
+        n_bars = int(slab_len_draw / spacing_draw)
+        for i in range(n_bars):
+            cx = (i * spacing_draw) + 0.2
+            if cx < slab_len_draw:
+                ax.add_patch(patches.Circle((cx, dist_y), 0.03, color='red'))
+
+        # Dimensions
+        draw_dim(ax, 0, -slab_h_draw, slab_len_draw, -slab_h_draw, f"L = {Lx_real:.2f} m", offset_y=-0.3)
+        draw_dim(ax, slab_len_draw, 0, slab_len_draw, -slab_h_draw, f"t = {h_cm:.0f} cm", offset_x=0.3)
+
+        # Labels
+        ax.text(-beam_w / 2, -beam_d - 0.2, "Support", ha='center', fontsize=10)
+        ax.annotate(f"{main_key}@{s_main:.0f}cm (Top)", xy=(slab_len_draw / 2, bar_y), xytext=(slab_len_draw / 2, 0.3),
+                    arrowprops=dict(facecolor='blue', arrowstyle='->'), ha='center', color='blue', fontweight='bold')
 
     else:
-        # --- พื้นช่วงเดียว / ต่อเนื่อง (Simply / Continuous) ---
-        # เหล็กบน (Top Bar - เสริมหัวเสา/คาน)
-        hook_len = DRAW_L * 0.25
-        # ซ้าย
-        ax.plot([-BEAM_W / 2, hook_len], [y_top, y_top], color=C_MAIN, linewidth=3)
-        ax.plot([-BEAM_W / 2, -BEAM_W / 2], [y_top, y_top - 0.4], color=C_MAIN, linewidth=3)  # Hook ลงคาน
-        # ขวา
-        ax.plot([DRAW_L - hook_len, DRAW_L + BEAM_W / 2], [y_top, y_top], color=C_MAIN, linewidth=3)
-        ax.plot([DRAW_L + BEAM_W / 2, DRAW_L + BEAM_W / 2], [y_top, y_top - 0.4], color=C_MAIN,
-                linewidth=3)  # Hook ลงคาน
+        # --- SIMPLE / CONTINUOUS ---
+        slab_len_draw = 5.0
 
-        # เหล็กล่าง (Bottom Bar - รับโมเมนต์บวก)
-        ax.plot([PAD, DRAW_L - PAD], [y_bot, y_bot], color=C_MAIN, linewidth=3)
-        # Hook ขึ้น (ดัดคอม้า หรือ งอฉาก)
-        ax.plot([PAD, PAD], [y_bot, y_bot + 0.25], color=C_MAIN, linewidth=3)
-        ax.plot([DRAW_L - PAD, DRAW_L - PAD], [y_bot, y_bot + 0.25], color=C_MAIN, linewidth=3)
+        # Beams
+        ax.add_patch(patches.Rectangle((-beam_w, -beam_d), beam_w, beam_d,
+                                       facecolor='white', edgecolor=concrete_edge, hatch=hatch_style))
+        ax.add_patch(patches.Rectangle((slab_len_draw, -beam_d), beam_w, beam_d,
+                                       facecolor='white', edgecolor=concrete_edge, hatch=hatch_style))
+        # Slab
+        ax.add_patch(patches.Rectangle((0, -slab_h_draw), slab_len_draw, slab_h_draw,
+                                       facecolor=concrete_color, edgecolor=concrete_edge))
 
-        # เหล็กกันร้าว (Temp) - จุดแดงวางบนเหล็กล่าง
-        n_dots = 7
-        spacing = DRAW_L / n_dots
-        for i in range(1, n_dots):
-            # วางจุดเหนือเหล็กล่างเล็กน้อย
-            ax.add_patch(patches.Circle((i * spacing, y_bot + 0.15), radius=0.06, color=C_TEMP))
+        # Rebar (Bottom)
+        bar_y = -slab_h_draw + cover_visual + 0.02
+        ax.plot([0.1, slab_len_draw - 0.1], [bar_y, bar_y], color='blue', lw=3)
+        ax.plot([0.1, 0.1], [bar_y, bar_y + 0.15], color='blue', lw=3)
+        ax.plot([slab_len_draw - 0.1, slab_len_draw - 0.1], [bar_y, bar_y + 0.15], color='blue', lw=3)
 
-        # Label Text setup
-        txt_main = f"Main(Bot): {main_key}@{s_main:.0f}cm"
-        txt_temp = f"Temp: {temp_key}@{s_temp:.0f}cm"
+        # Temp Bar
+        dist_y = bar_y + 0.05
+        spacing_draw = 0.3
+        n_bars = int(slab_len_draw / spacing_draw)
+        for i in range(1, n_bars):
+            cx = i * spacing_draw
+            ax.add_patch(patches.Circle((cx, dist_y), 0.03, color='red'))
 
-        # Label Box Callout (เหมือนรูปตัวอย่าง)
-        # Main Bar Label
-        bbox_props = dict(boxstyle="round,pad=0.3", fc="white", ec="blue", lw=1)
-        ax.annotate(txt_main, xy=(DRAW_L / 2, y_bot), xytext=(DRAW_L / 2, -0.6),
-                    ha='center', va='center', color='blue', fontweight='bold',
-                    bbox=bbox_props, arrowprops=dict(arrowstyle='->', color='blue'))
+        # Dimensions
+        draw_dim(ax, 0, -beam_d, slab_len_draw, -beam_d, f"L = {Lx_real:.2f} m", offset_y=0.0)
+        draw_dim(ax, slab_len_draw + beam_w, 0, slab_len_draw + beam_w, -slab_h_draw, f"t = {h_cm:.0f} cm",
+                 offset_x=0.2)
 
-        # Temp Bar Label
-        bbox_props_red = dict(boxstyle="round,pad=0.3", fc="white", ec="red", lw=1)
-        ax.annotate(txt_temp, xy=(DRAW_L / 2 + 0.5, y_bot + 0.15), xytext=(DRAW_L / 2 + 0.5, DRAW_H + 0.4),
-                    ha='center', va='center', color='red', fontweight='bold',
-                    bbox=bbox_props_red, arrowprops=dict(arrowstyle='->', color='red'))
+        # Labels
+        ax.annotate(f"{main_key}@{s_main:.0f}cm (Btm)", xy=(slab_len_draw / 2, bar_y),
+                    xytext=(slab_len_draw / 2, -slab_h_draw - 0.4),
+                    arrowprops=dict(facecolor='blue', arrowstyle='->'), ha='center', color='blue', fontweight='bold')
 
-    # 3. Dimensions (เส้นบอกระยะ)
-    # บอกความยาว L (ด้านล่าง)
-    ax.annotate(text='', xy=(0, -0.2), xytext=(DRAW_L, -0.2), arrowprops=dict(arrowstyle='<->', color='black'))
-    ax.text(DRAW_L / 2, -0.35, f"L = {Lx_real:.2f} m", ha='center', fontsize=12, fontweight='bold')
+        ax.annotate(f"Temp: {temp_key}@{s_temp:.0f}cm", xy=(slab_len_draw / 2 + 0.2, dist_y),
+                    xytext=(slab_len_draw / 2 + 1.0, 0.2),
+                    arrowprops=dict(facecolor='red', arrowstyle='->'), ha='center', color='red', fontweight='bold')
 
-    # บอกความหนา h (ด้านขวา)
-    # วาดเส้นบอกระยะด้านขวาของคานขวา
-    dim_x = DRAW_L + BEAM_W + 0.3
-    ax.annotate(text='', xy=(dim_x, 0), xytext=(dim_x, DRAW_H), arrowprops=dict(arrowstyle='<->', color='black'))
-    # หมุนตัวหนังสือ 90 องศา
-    ax.text(dim_x + 0.15, DRAW_H / 2, f"h = {h_cm_real / 100:.2f} m", ha='center', va='center', rotation=90,
-            fontsize=12, fontweight='bold')
-
-    # Cleanup Plot Area
-    ax.set_xlim(-BEAM_W - 0.5, DRAW_L + BEAM_W + 1.0)
-    ax.set_ylim(-BEAM_D - 0.5, DRAW_H + 1.0)
-    ax.axis('off')  # ปิดแกนทั้งหมด
-
+    ax.axis('equal')
+    ax.axis('off')
     plt.tight_layout()
     return fig
 
@@ -203,7 +219,7 @@ def plot_slab_section_schematic(Lx_real, h_cm_real, cover_cm, main_key, s_main, 
 # ==========================================
 # 4. CALCULATION LOGIC
 # ==========================================
-def process_slab_calculation(inputs, auto_h_flag):
+def process_slab_calculation(inputs):
     rows = []
 
     def sec(title):
@@ -212,11 +228,12 @@ def process_slab_calculation(inputs, auto_h_flag):
     def row(item, formula, subs, result, unit, status=""):
         rows.append([item, formula, subs, result, unit, status])
 
-    # Unpack basic inputs
+    # Unpack
     fc = inputs['fc'];
     fy = inputs['fy']
     Lx = inputs['Lx'];
     Ly = inputs['Ly']
+    h_cm = inputs['h'];
     cover_cm = inputs['cover']
     sdl = inputs['sdl'];
     ll = inputs['ll']
@@ -224,57 +241,35 @@ def process_slab_calculation(inputs, auto_h_flag):
     temp_key = inputs['tempBar']
     support = inputs['support']
 
-    # 1. Geometry Check
+    # 1. Geometry & Type Check
     sec("1. GEOMETRY & SLAB TYPE")
-    row("Short Span (Lx)", "Input", "-", f"{Lx:.2f}", "m")
-    row("Long Span (Ly)", "Input", "-", f"{Ly:.2f}", "m")
+    row("Short Span", "Lx", "-", f"{Lx:.2f}", "m")
+    row("Long Span", "Ly", "-", f"{Ly:.2f}", "m")
 
     ratio = Ly / Lx
     slab_type = "One-Way Slab" if ratio > 2.0 else "Two-Way Slab"
     status_type = "OK" if ratio > 2.0 else "WARNING"
+
     row("Ratio Ly/Lx", f"{Ly:.2f} / {Lx:.2f}", "-", f"{ratio:.2f}", "-", status_type)
+    row("Slab Type Check", "Ratio > 2.0?", "-", slab_type, "-", status_type)
 
-    # 2. Thickness Design (Manual or Auto)
-    sec("2. THICKNESS DESIGN (Deflection Control)")
+    if ratio <= 2.0:
+        rows.append(
+            ["Note", "Since Ly/Lx ≤ 2.0, it behaves as Two-Way.", "Design as One-Way is Conservative.", "-", "-",
+             "INFO"])
 
-    if support == "Simply Supported":
-        div = 20.0
-    elif support == "Continuous (One End)":
-        div = 24.0
-    elif support == "Continuous (Both)":
-        div = 28.0
-    elif support == "Cantilever":
-        div = 10.0
-    else:
-        div = 20.0
-
-    correction_factor = (0.4 + fy / 7000)
-    h_min = (Lx * 100 / div) * correction_factor
-
-    if auto_h_flag:
-        h_use = math.ceil(h_min)
-        calc_note = "Auto-Calculated"
-        pass_h = "SELECTED"
-    else:
-        h_use = inputs['h']
-        calc_note = "User Input"
-        pass_h = "PASS" if h_use >= h_min else "FAIL (Too Thin)"
-
-    row("Min. Thickness (h_min)", f"L/{div:.0f} · (0.4+fy/7000)", f"{Lx * 100:.0f}/{div:.0f} · {correction_factor:.2f}",
-        f"{h_min:.2f}", "cm")
-    row("Design Thickness (h)", calc_note, f"{h_use} ≥ {h_min:.2f}", f"{h_use:.0f}", "cm", pass_h)
-
-    # 3. Load Analysis
-    sec("3. LOAD ANALYSIS (Design Strip b = 1 m)")
-    w_sw = 2400 * (h_use / 100)
+    # 2. Load Analysis
+    sec("2. LOAD ANALYSIS (Design Strip b = 1 m)")
+    w_sw = 2400 * (h_cm / 100)
     w_dead = w_sw + sdl
     wu = 1.2 * w_dead + 1.6 * ll
 
-    row("Factored Load (wu)", "1.2D + 1.6L", f"1.2({w_dead + w_sw:.0f}) + 1.6({ll})", f"{fmt(wu)}", "kg/m")
+    row("Factored Load (wu)", "1.2D + 1.6L", f"1.2({w_dead:.0f}) + 1.6({ll})", f"{fmt(wu)}", "kg/m")
 
-    # 4. Flexural Design
-    sec("4. MAIN STEEL DESIGN")
+    # 3. Flexural Design (Short Span - Lx)
+    sec("3. SHORT SPAN DESIGN (MAIN STEEL)")
 
+    # Coef
     if support == "Simply Supported":
         coef = 8.0
     elif "Continuous" in support:
@@ -288,9 +283,10 @@ def process_slab_calculation(inputs, auto_h_flag):
     Mu_kgcm = Mu_kgm * 100
 
     db_main = BAR_INFO[main_key]['d_mm']
-    d = h_use - cover_cm - (db_main / 10) / 2
+    d = h_cm - cover_cm - (db_main / 10) / 2
 
-    row("Design Moment (Mu)", f"wu · L² / {coef:.0f}", f"{fmt(wu)}·{Lx}²/{coef:.0f}", f"{fmt(Mu_kgm)}", "kg-m")
+    row("Design Moment (Mu)", f"wu · Lx² / {coef:.0f}", f"{fmt(wu)}·{Lx}²/{coef:.0f}", f"{fmt(Mu_kgm)}", "kg-m")
+    row("Effective Depth (d)", "h - cov - db/2", f"{h_cm}-{cover_cm}-{db_main / 20}", f"{d:.2f}", "cm")
 
     # Rn & Rho
     phi = 0.90;
@@ -303,7 +299,7 @@ def process_slab_calculation(inputs, auto_h_flag):
         term = 1 - (2 * Rn) / (0.85 * fc)
         if term < 0:
             rho_req = 0;
-            status_flex = "FAIL (Section too small)"
+            status_flex = "FAIL (Thicken Slab)"
         else:
             rho_req = (0.85 * fc / fy) * (1 - math.sqrt(term))
     except:
@@ -311,36 +307,86 @@ def process_slab_calculation(inputs, auto_h_flag):
         status_flex = "CALC ERROR"
 
     As_flex_req = rho_req * b * d
-    As_min_req = rho_min * b * h_use
-    As_req_short = max(As_flex_req, As_min_req)
+    As_min_req = rho_min * b * h_cm
 
-    # Main Bar Selection
+    # Determine Control
+    if As_flex_req >= As_min_req:
+        As_req_short = As_flex_req
+        control = "Flexure Controls"
+    else:
+        As_req_short = As_min_req
+        control = "Min Steel Controls"
+
+    row("Required As (Short)", control, f"max(ρbd, 0.0018bh)", f"{fmt(As_req_short)}", "cm²")
+
+    # Select Main Bar
     Ab_main = BAR_INFO[main_key]['A_cm2']
     s_calc = (Ab_main * 100) / As_req_short
-    s_max = min(3 * h_use, 45.0)
+    s_max = min(3 * h_cm, 45.0)
     s_main = math.floor(min(s_calc, s_max) * 2) / 2
     As_prov_main = (Ab_main * 100) / s_main
 
     row("Provide Main Steel", f"Use {main_key}", f"@{s_main:.1f} cm", f"{fmt(As_prov_main)}", "cm²", status_flex)
 
-    # 5. Temp Steel
-    sec("5. TEMPERATURE STEEL")
-    As_req_long = 0.0018 * b * h_use
+    # 4. Temperature Steel (Long Span - Ly)
+    sec("4. LONG SPAN DESIGN (TEMP STEEL)")
+    As_req_long = 0.0018 * b * h_cm
+    row("Required As (Long)", "0.0018 · b · h", f"0.0018 · 100 · {h_cm}", f"{fmt(As_req_long)}", "cm²")
+
     Ab_temp = BAR_INFO[temp_key]['A_cm2']
     s_t_calc = (Ab_temp * 100) / As_req_long
-    s_t_max = min(5 * h_use, 45.0)
+    s_t_max = min(5 * h_cm, 45.0)
     s_temp = math.floor(min(s_t_calc, s_t_max) * 2) / 2
     As_prov_temp = (Ab_temp * 100) / s_temp
 
     row("Provide Temp Steel", f"Use {temp_key}", f"@{s_temp:.1f} cm", f"{fmt(As_prov_temp)}", "cm²", "OK")
 
-    return rows, s_main, s_temp, h_use
+    # 5. Shear & Deflection (UPDATED ACI/EIT)
+    sec("5. CHECKS")
+
+    # --- Shear Check ---
+    Vu = (wu * Lx) / 2 if support != "Cantilever" else wu * Lx
+    Vc = 0.53 * math.sqrt(fc) * b * d
+    phi_shear = 0.85
+    phi_Vc = phi_shear * Vc
+
+    status_shear = "PASS" if phi_Vc >= Vu else "FAIL"
+    row("Shear Check", "φVc ≥ Vu", f"{fmt(phi_Vc)} ≥ {fmt(Vu)}", status_shear, "kg", status_shear)
+
+    # --- Deflection Check (h_min) ---
+    if support == "Simply Supported":
+        ratio_def = 20.0
+    elif support == "Continuous (One End)":
+        ratio_def = 24.0
+    elif support == "Continuous (Both)":
+        ratio_def = 28.0
+    elif support == "Cantilever":
+        ratio_def = 10.0
+    else:
+        ratio_def = 20.0
+
+    correction_factor = (0.4 + fy / 7000)
+    h_min = (Lx * 100 / ratio_def) * correction_factor
+
+    status_defl = "PASS" if h_cm >= h_min else "CHECK"
+    row("Deflection Check", f"L/{ratio_def:.0f} · (0.4+fy/7000)", f"{h_cm} ≥ {fmt(h_min)}", status_defl, "cm",
+        status_defl)
+
+    if status_defl == "CHECK":
+        rows.append(["Note", f"Req h_min = {fmt(h_min)} cm", "Consider increasing thickness", "-", "-", "WARNING"])
+
+    # Final
+    sec("6. CONCLUSION")
+    final_status = "COMPLETE" if status_flex == "OK" and status_shear == "PASS" else "REVIEW"
+    row("Design Status", "-", "-", final_status, "-", final_status)
+
+    return rows, s_main, s_temp
 
 
 # ==========================================
 # 5. HTML REPORT GENERATOR
 # ==========================================
-def generate_report(inputs, rows, img_base64, h_final):
+def generate_report(inputs, rows, img_base64):
     table_html = ""
     for r in rows:
         if r[0] == "SECTION":
@@ -350,12 +396,13 @@ def generate_report(inputs, rows, img_base64, h_final):
             cls = "pass-ok"
             if "FAIL" in st_val:
                 cls = "pass-no"
-            elif "WARNING" in st_val:
+            elif "WARNING" in st_val or "CHECK" in st_val:
                 cls = "pass-warn"
-            elif "SELECTED" in st_val:
-                cls = "pass-ok"
+            elif "INFO" in st_val:
+                cls = ""
 
             val_cls = "load-value" if "Factored" in str(r[0]) else ""
+
             table_html += f"<tr><td>{r[0]}</td><td>{r[1]}</td><td>{r[2]}</td><td class='{val_cls}'>{r[3]}</td><td>{r[4]}</td><td class='{cls}'>{st_val}</td></tr>"
 
     html = f"""
@@ -380,10 +427,19 @@ def generate_report(inputs, rows, img_base64, h_final):
             .sec-row {{ background-color: #ddd; font-weight: bold; }}
             .pass-ok {{ color: green; font-weight: bold; }}
             .pass-no {{ color: red; font-weight: bold; }}
-            .footer {{ margin-top: 40px; }}
+            .pass-warn {{ color: orange; font-weight: bold; }}
+            .load-value {{ color: #D32F2F; font-weight: bold; }}
+
+            .footer {{ margin-top: 40px; page-break-inside: avoid; }}
             .sign-box {{ width: 250px; text-align: center; margin-top: 20px; }}
             .line {{ border-bottom: 1px solid #000; margin: 30px 0 5px 0; }}
-            .print-btn-internal {{ background-color: #4CAF50; border: none; color: white; padding: 10px 20px; cursor: pointer; border-radius: 4px; font-family: 'Sarabun'; }}
+
+            /* Print Button Internal */
+            .print-btn-internal {{
+                background-color: #4CAF50; border: none; color: white; padding: 10px 20px;
+                text-align: center; display: inline-block; font-size: 16px; margin-bottom: 20px;
+                cursor: pointer; border-radius: 4px; font-family: 'Sarabun'; font-weight: bold;
+            }}
             @media print {{ .no-print {{ display: none !important; }} }}
         </style>
     </head>
@@ -402,16 +458,16 @@ def generate_report(inputs, rows, img_base64, h_final):
             <div class="info-box">
                 <strong>Project:</strong> {inputs['project']}<br>
                 <strong>Engineer:</strong> {inputs['engineer']}<br>
-                <strong>Date:</strong> 18/12/2568
+                <strong>Date:</strong> 16/12/2568
             </div>
             <div class="info-box">
                 <strong>Panel Size:</strong> {inputs['Lx']} x {inputs['Ly']} m ({inputs['support']})<br>
-                <strong>Thickness:</strong> {h_final:.0f} cm (Cover {inputs['cover']} cm)<br>
+                <strong>Thickness:</strong> {inputs['h']} cm (Cover {inputs['cover']} cm)<br>
                 <strong>Materials:</strong> fc'={inputs['fc']}, fy={inputs['fy']} ksc
             </div>
         </div>
 
-        <h3>Design Visualization (Schematic)</h3>
+        <h3>Design Visualization</h3>
         <div class="img-container">
             <img src="{img_base64}" />
         </div>
@@ -419,9 +475,14 @@ def generate_report(inputs, rows, img_base64, h_final):
         <h3>Calculation Details</h3>
         <table>
             <thead>
-                <tr><th width="25%">Item</th><th width="20%">Formula</th><th width="25%">Substitution</th><th width="15%">Result</th><th width="8%">Unit</th><th width="7%">Status</th></tr>
+                <tr>
+                    <th width="25%">Item</th><th width="20%">Formula</th><th width="25%">Substitution</th>
+                    <th width="15%">Result</th><th width="8%">Unit</th><th width="7%">Status</th>
+                </tr>
             </thead>
-            <tbody>{table_html}</tbody>
+            <tbody>
+                {table_html}
+            </tbody>
         </table>
 
         <div class="footer">
@@ -454,56 +515,60 @@ with st.sidebar.form("input_form"):
     Lx = c1.number_input("Short Span: Lx (m)", value=3.0, step=0.1, min_value=0.1)
     Ly = c2.number_input("Long Span: Ly (m)", value=7.0, step=0.1, min_value=0.1)
 
-    st.subheader("Thickness Design")
-    auto_thick = st.checkbox("✅ Auto-calculate Thickness", value=True)
-
     c3, c4 = st.columns(2)
-    if auto_thick:
-        h_input = c3.number_input("Manual Thickness", value=0.0, disabled=True)
-    else:
-        h_input = c3.number_input("Thickness (cm)", value=12.0, step=1.0)
+    h = c3.number_input("Thickness (cm)", value=12.0, step=1.0)
+    cover = c4.number_input("Cover (cm)", value=2.0, step=0.5)
 
-    cover = c4.number_input("Cover (cm)", value=2.5, step=0.5)
+    st.header("2. Materials")
+    c1, c2 = st.columns(2)
+    fc = c1.number_input("fc' (ksc)", value=240)
+    fy = c2.number_input("fy (ksc)", value=4000)
 
-    st.header("2. Materials & Loads")
-    fc = st.number_input("fc' (ksc)", value=240)
-    fy = st.number_input("fy (ksc)", value=4000)
-    sdl = st.number_input("SDL (kg/m²)", value=150.0)
-    ll = st.number_input("LL (kg/m²)", value=300.0)
+    st.header("3. Loads & Support")
+    c1, c2 = st.columns(2)
+    sdl = c1.number_input("SDL (kg/m²)", value=150.0)
+    ll = c2.number_input("LL (kg/m²)", value=300.0)
 
-    support = st.selectbox("Support Type",
-                           ["Simply Supported", "Continuous (One End)", "Continuous (Both)", "Cantilever"])
+    # Updated Support List
+    support = st.selectbox("Support Type", [
+        "Simply Supported",
+        "Continuous (One End)",
+        "Continuous (Both)",
+        "Cantilever"
+    ])
 
-    st.header("3. Bar Selection")
-    # Updated: Temp Bar uses full list like Main Bar
-    mainBar = st.selectbox("Main Bar (Lx)", list(BAR_INFO.keys()), index=3)
-    tempBar = st.selectbox("Temp Bar (Ly)", list(BAR_INFO.keys()), index=1)
+    st.header("4. Bar Selection")
+    st.caption("Select preferred bar size. Spacing will be auto-calculated.")
+    mainBar = st.selectbox("Main Bar (Lx)", list(BAR_INFO.keys()), index=3)  # Default DB12
+    tempBar = st.selectbox("Temp Bar (Ly)", ['RB6', 'RB9', 'DB10'], index=1)  # Default RB9
 
     run_btn = st.form_submit_button("Run Auto Design")
 
 if run_btn:
+    # Logic to ensure Lx is actually the shorter side (Unless Cantilever which has distinct direction)
+    # Note: For Cantilever, Lx is usually the Overhang Length.
     if support != "Cantilever" and Lx > Ly:
-        st.warning(f"⚠️ Warning: Input Lx ({Lx}m) > Ly ({Ly}m). Swapping automatically.")
+        st.warning(f"⚠️ Warning: Input Lx ({Lx}m) is greater than Ly ({Ly}m). Swapping values automatically.")
         Lx, Ly = Ly, Lx
 
     inputs = {
         'project': project, 'slab_id': slab_id, 'engineer': engineer,
-        'Lx': Lx, 'Ly': Ly, 'h': h_input, 'cover': cover,
+        'Lx': Lx, 'Ly': Ly, 'h': h, 'cover': cover,
         'fc': fc, 'fy': fy, 'sdl': sdl, 'll': ll,
         'support': support, 'mainBar': mainBar, 'tempBar': tempBar
     }
 
-    # Calculate
-    rows, s_main, s_temp, h_final = process_slab_calculation(inputs, auto_thick)
+    # 1. Calculate
+    rows, s_main, s_temp = process_slab_calculation(inputs)
 
-    # Draw (Schematic)
-    img_base64 = fig_to_base64(
-        plot_slab_section_schematic(Lx, h_final, cover, mainBar, s_main, tempBar, s_temp, support))
+    # 2. Draw (Pass support type AND Lx for dimension lines)
+    img_base64 = fig_to_base64(plot_slab_section(h, cover, mainBar, s_main, tempBar, s_temp, support, Lx))
 
-    # Report
-    html_report = generate_report(inputs, rows, img_base64, h_final)
+    # 3. Report
+    html_report = generate_report(inputs, rows, img_base64)
 
-    st.success("✅ Design Complete!")
+    st.success("✅ Auto-Design Complete!")
     components.html(html_report, height=1200, scrolling=True)
+
 else:
-    st.info("👈 Please enter data on the sidebar to start design.")
+    st.info("👈 Please enter slab dimensions (Lx, Ly) and properties to design.")
